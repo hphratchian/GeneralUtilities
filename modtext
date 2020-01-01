@@ -1,0 +1,846 @@
+#!/usr/bin/perl
+#
+# POD block.  To view these comments in a formatted fashion, use perldoc or
+# any of the other POD utilities to form man-style pages.
+#
+
+=head1 NAME
+
+B<modtext> - This script is used to modify text in one or more files.
+
+=head1 SYNOPSIS
+
+B<modtext> [I<option_list>] F<files>
+
+=head1 DESCRIPTION
+
+This script takes one or more file names as input and modifies them
+according to user-defined modifications that are given using one or more
+switches (see below).  The output of this script is placed directly into
+the input file(s).
+
+Multiple text modification may be specified in one command.  The order
+of operations is as follows:
+
+=over
+
+=item 1. Remove paragraphs from the file
+
+=item 2. Remove lines from the top/bottom of the file
+
+=item 3. Match/Replace
+
+=item 4. Add lines to the top/bottom of the file
+
+=back
+
+=head1 OPTIONS
+
+B<GENERAL PROGRAM OPTIONS>
+
+=over
+
+=item B<-H>
+
+=over
+
+Print help information.
+
+=back
+
+=back
+
+B<GENERAL MODIFICATION SWITCHES>
+
+=over
+
+=item B<-v>
+
+=over
+
+Be verbose.
+
+=back
+       
+=item B<-rmpara[=N]>
+
+=over
+
+Remove paragaph number N from the file.  If the =N portion is omitted, N
+defaults to 1.  If N < 0 the the N-th from the bottom paragraph is removed.
+Paragraphs are defined by blocks of text that are delimited by one or more
+blank lines.  The removal of a paragraph includes one blank line appearing
+before the paragraph.
+
+=back
+       
+=item B<-top[=N] [text]>
+
+=over
+
+Add the text in [text] to the top of the file(s).  If the =N option is used
+with -top, then N is an integer that indicates that N [text] values will
+follow.  Each [text] value is added to the top of the file as a new line.
+If the =N portion is omitted, N defaults to 1.
+
+=back
+
+=item B<-bottom[=N] [text]>
+
+=over
+
+Add the text in [text] to the bottom of the file(s).  If the =N option is
+used with -bottom, then N is an integer that indicates that N [text] values
+will follow.  Each [text] value is added to the bottom of the file as a new
+line.  If the =N portion is omitted, N defaults to 1.  B<-bot> is
+synonymous with B<-bottom>.
+
+=back
+
+=item B<-rmtop[=N]>
+
+=over
+
+Remove the first N lines from the top of the file.  If the =N portion is
+omitted, N defaults to 1.
+
+=back
+
+=item B<-rmbottom[=N]>
+
+=over
+
+Remove the last N lines from the bottom of the file.  If the =N portion is
+omitted, N defaults to 1.  B<-rmbot> is synonymous with B<-rmbottom>.
+
+=back
+
+=item B<-m [text]>
+
+=over
+
+Match the text in [text] and replace with the text given by the replace
+flag (-r).  If no replace flag is used, then the replace text is taken as
+"".  The match text makes full use of standard Perl regular expressions.
+Therefore, take care to use escape characters when needed.
+
+=back
+
+=item B<-r [text]>
+
+=over
+
+Replacement text for substituting matches with the match text (-m option).
+Unlike the match text, the replace text does NOT make use of regular
+expressions.
+
+=back
+
+=item B<-a [text]>
+
+=over
+
+Append text to the end of lines that match with the match text (-m option).
+Unlike the match text, the append text does NOT make use of regular
+expressions.
+
+=back
+
+=item B<-rfile>
+
+=over
+
+Replace all match text (-m option) with the current file's name.
+
+=back
+
+=item B<-afile>
+
+=over
+
+Append the current file's name to the end of lines that match with the
+match text (-m option).
+
+=back
+       
+=item B<-n=[integer]>
+
+=over
+
+This indicates that the specified operation only be carried out [integer]
+times in each file.  By default, there is no limit on the number of times
+an operation is carried out.  
+
+=back
+
+=item B<-i>
+
+=over
+
+Use case-insensitive match requirments.
+
+=back
+
+=item B<-g>
+
+=over
+
+Use global replacement option when doing text replacements.
+
+=back
+
+=back
+
+=head1 AUTHOR
+
+=over
+
+=item Hrant P. Hratchian
+
+=item Department of Chemistry & Chemical Biology
+
+=item Center for Chemical Computation and Theory (ccCAT)
+
+=item University of California, Merced
+
+=item hhratchian@ucmerced.edu
+
+=back
+
+=head1 HISTORY
+
+Latest Modification(s): January 1, 2020.
+
+=cut
+
+#
+#   Set the option flags by interpreting the command line arguments.  We
+#   also ensure that at least one file has been specified, and that all
+#   specified files exist.
+#
+    ($print_help,$print_flag,$rm_para,$add_top,$add_bottom,
+      $rm_top,$rm_bottom,$num_times,$set_ic,$global,$match,$replace,$append,
+      $replace_filename,$append_filename,@filenames) = &set_options_sub(@ARGV);
+    if($print_help){&print_help_sub()};
+    unless(@filenames){die "\nAt least 1 file must be specified!\n\n"}
+    $JUNK = &file_check_sub(@filenames);
+#
+#   Now, do the work.
+#
+#
+#   Remove a paragraph from the file...
+    if($rm_para){
+      @junk = &do_rm_paragraph_sub($rm_para,@filenames);
+    }
+#
+#   Remove lines from the top/bottom of the file...
+    if($rm_top){
+      $junk = &do_rm_top_sub($rm_top,@filenames);
+    }
+    if($rm_bottom){
+      $junk = &do_rm_bottom_sub($rm_bottom,@filenames);
+    }
+#
+#   Do match/replace...
+    if($match){
+      if($set_ic){
+        $substitution_options .= "i";
+      }
+      if($global){
+        $substitution_options .= "g";
+      }
+      if(! $substitution_options){
+        $substitution_options = 0;
+      }
+      if($append){
+        $junk =
+          &do_line_append_sub($print_flag,$num_times,$match,$append,
+            $substitution_options,@filenames);
+      }elsif($replace){
+        $junk =
+          &do_substitution_sub($print_flag,$num_times,$match,$replace,
+          $substitution_options,@filenames);
+      }elsif($append_filename){
+        foreach $current_filename (@filenames){
+          $junk = 
+            &do_line_append_sub($print_flag,$num_times,$match,$current_filename,
+            $substitution_options,$current_filename);
+        }
+      }elsif($replace_filename){
+        foreach $current_filename (@filenames){
+          $junk = 
+            &do_substitution_sub($print_flag,$num_times,$match,
+              $current_filename,$substitution_options,$current_filename);
+        }
+      }else{
+        die "\n\nModtext is confused!\n\n";
+      }
+    }
+#
+#   Add lines to the top/bottom of the file...
+    if($add_top){
+      $junk = &do_add_top_sub($add_top,@filenames);
+    }
+    if($add_bottom){
+      $junk = &do_add_bottom_sub($add_bottom,@filenames);
+    }
+
+
+
+##########################################################################
+#                                                                        #
+#                              SUBROUTINES                               #
+#                                                                        #
+##########################################################################
+
+    sub set_options_sub{
+#
+#   This routine is used to read through the command line arguments and set
+#   all of the related option flags used throughout this script.  As input,
+#   this routine requires the ARGV array from the top program unit.  These
+#   option flags (and the file list, when appropriate) are returned as a
+#   list.
+#
+#
+#   
+      use strict;
+      my($print_help,$print_flag,$rm_para,$add_top,$add_bottom,
+        $rm_top,$rm_bottom,$num_times,$set_ic,$global,$match,$replace,$append,
+        $replace_filename,$append_filename,@filenames);
+      my($temp,$get_argument,$get_add_top,$get_add_bottom,$get_match,
+        $get_replace,$get_append);
+#
+#     Interpret the list of command line arguments.
+#
+      $print_help = 0;
+      $print_flag = 0;
+      $add_top = 0;
+      $add_bottom = 0;
+      $num_times = 0;
+      $set_ic = 0;
+      $global = 0;
+      $get_argument = 0;
+      $get_match = 0;
+      $get_replace = 0;
+      $get_append = 0;
+      $replace_filename = 0;
+      $append_filename = 0;
+      foreach $temp (@ARGV){
+        chomp($temp);
+        if($get_argument){
+          if($get_add_top){
+            if($add_top){
+              $add_top .= "\n"."$temp";
+            }else{
+              $add_top = $temp;
+            }
+            $get_add_top -= 1;
+          }elsif($get_add_bottom){
+            if($add_bottom){
+              $add_bottom .= "\n"."$temp";
+            }else{
+              $add_bottom = $temp;
+            }
+            $get_add_bottom -= 1;
+          }elsif($get_match){
+            $match = $temp;
+            $get_match = 0;
+          }elsif($get_replace){
+            $replace = $temp;
+            $get_replace = 0;
+          }elsif($get_append){
+            $append = $temp;
+            $get_append = 0;
+          } 
+          $get_argument -= 1;
+        }elsif($temp =~ /^-/){
+          if($temp =~ /^-H/i){
+            $print_help = 1;
+          }elsif($temp =~ /^-v/){
+            $print_flag = 1;
+          }elsif($temp =~ /^-rmpara$/){
+            $rm_para = 1;
+          }elsif($temp =~ /^-rmpara=(-?\d+)$/){
+            $rm_para = $1;
+          }elsif($temp =~ /^-top$/){
+            $get_argument = 1;
+            $get_add_top = 1;
+          }elsif($temp =~ /^-top=(\d+)$/){
+            $get_argument = $1;
+            $get_add_top = $1;
+          }elsif($temp =~ /^-(bottom||bot)$/){
+            $get_argument = 1;
+            $get_add_bottom = 1;
+          }elsif($temp =~ /^-(bottom||bot)=(\d+)$/){
+            $get_argument = $2;
+            $get_add_bottom = $2;
+          }elsif($temp =~ /^-rmtop$/){
+            $rm_top = 1;
+          }elsif($temp =~ /^-rmtop=(\d+)$/){
+            $rm_top = $1;
+          }elsif($temp =~ /^-rm(bottom||bot)$/){
+            $rm_bottom = 1;
+          }elsif($temp =~ /^-rm(bottom||bot)=(\d+)$/){
+            $rm_bottom = $2;
+          }elsif($temp =~ /^-i$/){
+            $set_ic = 1;
+          }elsif($temp =~ /^-g$/){
+            $global = 1;
+          }elsif($temp =~ /^-m$/){
+            $get_argument = 1;
+            $get_match = 1;
+          }elsif($temp =~ /^-r$/){
+            $get_argument = 1;
+            $get_replace = 1;
+          }elsif($temp =~ /^-a$/){
+            $get_argument = 1;
+            $get_append = 1;
+          }elsif($temp =~ /^-rfile$/){
+            $replace_filename = 1;
+          }elsif($temp =~ /^-afile$/){
+            $append_filename = 1;
+          }elsif($temp =~ /^-n=(\d+)$/){
+            $num_times = $1;
+          }else{
+            die "Unknown option: $temp\n\n";
+          }
+        }else{
+          push(@filenames,$temp);
+        }
+      }
+#
+#     Return the interpreted option flags in the correct order.  Be sure to
+#     always send arrays last.
+#
+      return
+      ($print_help,$print_flag,$rm_para,$add_top,$add_bottom,
+        $rm_top,$rm_bottom,$num_times,$set_ic,$global,$match,$replace,$append,
+        $replace_filename,$append_filename,@filenames);
+    }
+
+
+    sub do_line_append_sub{
+#
+#   This routine is used to carry out a match and append job on the list of
+#   files provided by the user.  As input, this routine takes $print_flag,
+#   $num_times, $match, $append, $substition_options, and @filenames.  If
+#   there are no substition options, $substition_options should be equal to
+#   0.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($print_flag,$num_times,$match,$append,$substitution_options,
+        @filenames) = @_;
+      my($file,$new,@output,$num_done);
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        $num_done = 0;
+        while(<IUnit>){
+          chomp;
+          $new = "$_";
+          if(!($num_times) || $num_done < $num_times){
+            if(! $substitution_options){
+              if($new =~ /$match/){
+                $num_done += 1;
+                $new .= $append;
+              }
+            }elsif($substitution_options =~ /^i$/){
+              if($new =~ /$match/i){
+                $num_done += 1;
+                $new .= $append;
+              }
+            }elsif($substitution_options =~ /^g$/){
+              if($new =~ /$match/g){
+                $num_done += 1;
+                $new .= $append;
+              }
+            }else{
+              if($new =~ /$match/ig){
+                $num_done += 1;
+                $new .= $append;
+              }
+            }
+          }
+          $new .= "\n";
+          push (@output,$new);
+        }
+        if($print_flag > 0){print "$num_done matches made in $file.\n";}
+        close IUnit;
+        open IUnit,">$file";
+        print IUnit @output;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub do_substitution_sub{
+#
+#   This routine is used to carry out a match and replace sustitution job
+#   on the list of files provided by the user.  As input, this routine
+#   takes $print_flag, $num_times, $match, $replace, $substition_options,
+#   and @filenames.  If there are no substition options,
+#   $substition_options should be equal to 0.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($print_flag,$num_times,$match,$replace,$substitution_options,
+        @filenames) = @_;
+      my($file,$new,@output,$num_done);
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        $num_done = 0;
+        while(<IUnit>){
+          chomp;
+          $new = "$_";
+          if(!($num_times) || $num_done < $num_times){
+            if(! $substitution_options){
+              if($new =~ /$match/){$num_done += 1}
+              $new =~ s/$match/$replace/;
+            }elsif($substitution_options =~ /^i$/){
+              if($new =~ /$match/i){$num_done += 1}
+              $new =~ s/$match/$replace/i;
+            }elsif($substitution_options =~ /^g$/){
+              if($new =~ /$match/g){$num_done += 1}
+              $new =~ s/$match/$replace/g;
+            }else{
+              if($new =~ /$match/ig){$num_done += 1}
+              $new =~ s/$match/$replace/ig;
+            }
+          }
+          $new .= "\n";
+          push (@output,$new);
+        }
+        if($print_flag > 0){print "$num_done matches made in $file.\n";}
+        close IUnit;
+        open IUnit,">$file";
+        print IUnit @output;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub do_add_top_sub{
+#
+#   This routine is used to add text to the top of files.  As input, this
+#   routine takes $add_top and @filenames.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($add_top,@filenames);
+      my($file,@output);
+#
+#     Load the dummy variables.
+#
+      ($add_top,@filenames) = @_;
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        push (@output,"$add_top\n");
+        while(<IUnit>){
+          chomp;
+          push (@output,"$_\n");
+        }
+        close IUnit;
+        open IUnit,">$file";
+        print IUnit @output;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub do_add_bottom_sub{
+#
+#   This routine is used to add text to the bottom of files.  As input,
+#   this routine takes $add_bottom and @filenames.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($add_bottom,@filenames);
+      my($file,@output);
+#
+#     Load the dummy variables.
+#
+      ($add_bottom,@filenames) = @_;
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        while(<IUnit>){
+          chomp;
+          push (@output,"$_\n");
+        }
+        push (@output,"$add_bottom\n");
+        close IUnit;
+        open IUnit,">$file";
+        print IUnit @output;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub do_rm_top_sub{
+#
+#   This routine is used to remove lines from the top of files.  As input,
+#   this routine takes $rm_top and @filenames.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($rm_top,@filenames);
+      my($i,$file,@output,@final);
+#
+#     Load the dummy variables.
+#
+      ($rm_top,@filenames) = @_;
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        @final = ();
+        while(<IUnit>){
+          chomp;
+          push (@output,"$_\n");
+        }
+        close IUnit;
+        for ($i=$rm_top;$i<@output;$i++){
+          push (@final,$output[$i]);
+        }
+        open IUnit,">$file";
+        print IUnit @final;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub do_rm_bottom_sub{
+#
+#   This routine is used to remove lines from the bottom of files.  As
+#   input, this routine takes $rm_bottom and @filenames.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($rm_bottom,@filenames);
+      my($i,$write_length,$file,@output,@final);
+#
+#     Load the dummy variables.
+#
+      ($rm_bottom,@filenames) = @_;
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        @final = ();
+        while(<IUnit>){
+          chomp;
+          push (@output,"$_\n");
+        }
+        close IUnit;
+        $write_length = @output-$rm_bottom;
+        for ($i=0;$i<$write_length;$i++){
+          push (@final,$output[$i]);
+        }
+        open IUnit,">$file";
+        print IUnit @final;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub get_paragraph_pointers_sub{
+#
+#   This routine is used to build an array that holds the line numbers for
+#   the start and end of paragraphs in the array @input.  As input, this
+#   routine takes @input.  @input should have one element for each line of
+#   the text file that is being analyzed.  Paragraphs are taken to be
+#   delimited by blank lines.
+#
+#   This routine returns an array called @paragraph_pointers.  The first
+#   element of this array, $paragraph_pointers[0], gives the number of
+#   paragraphs in the file.  Element number 2*N-1 gives the element in
+#   @input where paragraph N begins.  Element number 2*N gives the element
+#   in @input where the paragraph N ends.
+#
+      use strict;
+      my(@input);
+      my($i,$j,$in_paragraph,$temp,@paragraph_pointers);
+#
+#     Load the dummy variables.
+#
+      (@input) = @_;
+#
+#     Do the work.
+#
+      foreach $temp (@input){
+        chomp($temp);
+        $i += 1;
+        if($temp=~/\S+/){
+          if(! $in_paragraph){
+            $in_paragraph = 1;
+            $paragraph_pointers[0] += 1;
+            $j = $paragraph_pointers[0]*2-1;
+            $paragraph_pointers[$j] = $i-1;
+          }
+        }elsif($in_paragraph){
+          $in_paragraph = 0;
+          $j = $paragraph_pointers[0]*2;
+          $paragraph_pointers[$j] = $i-2;
+        }
+      }
+      if($in_paragraph){
+        $in_paragraph = 0;
+        $j = $paragraph_pointers[0]*2;
+        $paragraph_pointers[$j] = $i-1;
+      }
+#
+#     Return the array @paragraph_pointers.
+#
+      return (@paragraph_pointers);
+    }
+
+
+    sub do_rm_paragraph_sub{
+#
+#   This routine is used to remove lines from a paragraph in the files.  As
+#   input, this routine takes $rm_para and @filenames.
+#
+#   This routine always returns a value of 0.
+#
+      use strict;
+      my($rm_para,@filenames);
+      my($i,$my_para,$file,$rm_start,$rm_end,@pointers,@output,@final);
+#
+#     Load the dummy variables.
+#
+      ($rm_para,@filenames) = @_;
+#
+#     Do the work.
+#
+      foreach $file (@filenames){
+        chomp($file);
+        open IUnit,"$file";
+        @output = ();
+        @final = ();
+        while(<IUnit>){
+          chomp;
+          push (@output,"$_\n");
+        }
+        close IUnit;
+        @pointers = &get_paragraph_pointers_sub(@output);
+        if($rm_para < 0){
+          $my_para = $pointers[0]+$rm_para+1;
+        }else{
+          $my_para = $rm_para;
+        }
+        $rm_start = $pointers[2*$my_para-1]-1;
+        $rm_end = $pointers[2*$my_para];
+        for ($i=0;$i<$rm_start;$i++){
+          push (@final,$output[$i]);
+        }
+        for ($i=$rm_end+1;$i<@output;$i++){
+          push (@final,$output[$i]);
+        }
+        open IUnit,">$file";
+        print IUnit @final;
+        close IUnit;
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub file_check_sub{
+#
+#   This routine is used to ensure that all files in a list exist.  If they
+#   do not, then this routine kills the program.
+#
+#   As INPUT, this routine takes a list of filename.
+#
+#   As OUTPUT, this routine always returns a value of 0.
+#
+      use strict;
+      my(@filenames);
+#
+#     Do the work.
+#
+      foreach(@_){
+        chomp;
+        unless(-e $_){die "\n\nFile $_ does not exist.\n\n"}
+      }
+#
+#     Always return 0.
+#
+      return (0);
+    }
+
+
+    sub print_help_sub{
+#
+#   This routine prints help by calling perldoc as an exec command, which
+#   should simultaneously exit the modtext process with a 0 status number.
+#
+#   No INPUT or OUTPUT.
+#
+      use strict;
+#
+#     Do the work.
+#
+      exec "perldoc modtext";
+#
+#     Always return 0.
+#
+      return (0);
+    }
