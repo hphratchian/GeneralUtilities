@@ -29,7 +29,7 @@ Here are some example uses of log2out...
 
 1. To save the file a.log use the command:
       savefile a.log
-   If the no saved files exist, this will copy a.log to a.log000. If files
+   If no saved files exist, this will copy a.log to a.log000. If files
    a.log000, a.log001, and a.log002 exist, this will copy a.log to
    a.log003.
 
