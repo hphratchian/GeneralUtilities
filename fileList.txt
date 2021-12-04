@@ -1,4 +1,6 @@
 Continuation_Block.pl
+gbatch
+g16batch
 modtext
 savefile.pl
 sqavail
