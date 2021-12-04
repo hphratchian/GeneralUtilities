@@ -1,0 +1,225 @@
+#!/usr/bin/perl
+#
+#   This script is used to determine the availablility of cores for each
+#   queue on MERCED. Additionally, this script reports availability of
+#   queue nodes and cores by 20-core vs. 24-core nodes.
+#
+#   Hrant P. Hratchian
+#   Department of Chemistry & Chemical Biology
+#   University of California, Merced
+#   hhratchian@ucmerced.edu
+#
+#
+#
+#   Load option switches and file names from the command line.
+#
+    foreach $temp (@ARGV){
+      chomp($temp);
+#
+#     General program options...
+      if($temp =~ /^-h$/i){
+        exec("perldoc","sqavail");
+        exit 0;
+#      }elsif($temp =~ /^-q=(.*)$/){
+#        chomp($currentQName=$1);
+#        $currentQName =~ s/\.q(\W|$)/$1/g;
+#        @tempList = split /,/,$currentQName;
+#        push(@queuePrintList,@tempList);
+      }elsif($temp =~ /^-a$/){
+        $print_all = 1;
+      }elsif($temp =~ /^-o$/){
+        $print_other = 1;
+#
+#     Unknown command line argument...
+      }elsif($temp =~ /^(.*)$/){
+        die "\n\nUnknown command line argument sent to qstatsum: $temp\n\n";
+      }
+    }
+#
+#
+#   Go through the output of `sinfo --format="%N %C %A %P" -N` and fill a
+#   few host-based hashes that will be used for analysis later.
+#
+    @sinfo_output = `sinfo --format="%N %C %A %P" -N`;
+    $sinfo_header1 = shift @sinfo_output;
+    foreach $temp (@sinfo_output){
+      chomp($temp);
+      if($temp =~ /^(\S+)\s+(\d+)\/(\d+)\/(\d+)\/(\d+)\s+(\d+)\/(\d+)\s+(\S+)$/){
+        $current_hostname = $1;
+        $cpusAllocated    = $2;
+        $cpusIdle         = $3;
+        $cpusOther        = $4;
+        $cpusTotal        = $5;
+        $queue_name       = $8;
+        unless($found_hostname{$current_hostname}){
+          $nHosts += 1;
+          push(@hostList,$current_hostname);
+          $cpusAllocatedByHost{$current_hostname} = $cpusAllocated;
+          $cpusIdleByHost{$current_hostname} = $cpusIdle;
+          $cpusOtherByHost{$current_hostname} = $cpusOther;
+          $cpusTotalByHost{$current_hostname} = $cpusTotal;
+          $nAllocatedCPUs += $cpusAllocated;
+          $nIdleCPUs += $cpusIdle;
+          $nOtherCPUs += $cpusOther;
+          $nTotalCPUs += $cpusTotal;
+        }
+        $found_hostname{$current_hostname} += 1;
+        unless($queueCounter{$queue_name}){push(@queueList,$queue_name)};
+        $queueCounter{$queue_name} += 1;
+        $queuesByHost{$current_hostname} .= "$queue_name;";
+      }else{
+        print "-->$temp<--\n";
+        die "\nConfused by sinfo output\n\n";
+      }
+    }
+#
+#   Print the list of queues found.
+#
+    if($print_all){
+      print "\nHere is the list of queues found and the number of nodes in each...\n";
+      foreach $temp (@queueList){
+        print "\t$temp\t$queueCounter{$temp}\n";
+      }
+    }
+#
+#   Print nodes/hosts found.
+#
+    if($print_all){
+      print "\nHere is the list of nodes/hosts found...\n";
+      print "There are a total of $nHosts hosts.\n";
+      foreach $temp (@hostList){
+        print "$temp  $found_hostname{$temp}\n";
+      }
+    }
+
+#
+#   Print stats about CPUs.
+#
+    printf("\nNo. CPUs Allocated = %6d\n",$nAllocatedCPUs);
+    printf("No. CPUs Idle      = %6d\n",$nIdleCPUs);
+    printf("No. CPUs Other     = %6d\n",$nOtherCPUs);
+    printf("No. CPUs TOTAL     = %6d\n",$nTotalCPUs);
+#
+#   Print the nodes that have CPUs flagged in an "other" state.
+#
+    if($print_other){
+      if($nOtherCPUs){
+        print "\nNode(s) with CPUs in an OTHER state.\n";
+        foreach $temp (@hostList){
+          if($cpusOtherByHost{$temp}){
+            print "\t$temp\n";
+          }
+        }
+      }else{
+        print "\nAll hosts have 0 CPUs in an OTHER state!\n";
+      }
+    }
+#
+#   Print the nodes that are partially available and fully available.
+#
+    foreach $temp (@hostList){
+      if($cpusAllocatedByHost{$temp} && $cpusIdleByHost{$temp}){
+        $nPartiallyAvailableNodes += 1;
+        push(@partiallyAvailableNodesList,$temp);
+      }elsif($cpusIdleByHost{$temp}){
+        $nFullyAvailableNodes += 1;
+        push(@fullyAvailableNodesList,$temp);
+      }
+    }
+    if($nPartiallyAvailableNodes){
+      print "\nThere are $nPartiallyAvailableNodes nodes that are PARTIALLY available (Available/Total).\n";
+      foreach $temp (@partiallyAvailableNodesList){
+        @tempQueueList = split ( /;/, $queuesByHost{$temp} );
+        $tempQueues = join ( ' | ',@tempQueueList );
+        printf("\t%-15s\(%2d\/%2d  %s\)\n",$temp,$cpusIdleByHost{$temp},$cpusTotalByHost{$temp},$tempQueues);
+      }
+    }
+    if($nFullyAvailableNodes){
+      print "\nThere are $nFullyAvailableNodes nodes that are FULLY available (Available/Total).\n";
+      foreach $temp (@fullyAvailableNodesList){
+        @tempQueueList = split ( /;/, $queuesByHost{$temp} );
+        $tempQueues = join ( ' | ',@tempQueueList );
+        printf("\t%-15s\(%2d\/%2d  %s\)\n",$temp,$cpusIdleByHost{$temp},$cpusTotalByHost{$temp},$tempQueues);
+      }
+    }
+#
+#
+#
+###########################################################################
+# POD BLOCK...
+#
+=head1 NAME
+
+B<qavail> - This script provides useful summaries of availability of nodes
+in the MERCED cluster's queue.
+
+=head1 SYNOPSIS
+
+B<qavail> [I<option_list>]
+
+=head1 OPTIONS
+
+=over
+
+=item B<-h>
+
+Print help information.
+
+=item B<-q>F<=QNAME>
+
+Report available nodes in queue QNAME. This switch can be invoked multiple
+times to include multiple queues in the reporting list.
+
+TBI.
+
+=item B<-a>
+
+Print slot/cpu metrics for all hosts.
+
+=item B<-o>
+
+Print a list of hosts with non-zero cores in an "OTHER" state.
+
+=back
+
+=head1 LATEST UPDATE
+
+Latest Modification(s): October 15, 2017.
+
+
+=head1 MODIFICATION HISTORY
+
+=over
+
+=item October 15, 2017
+
+Added the -q=QUEUE switch.
+
+=item March 31, 2017
+
+A minor printing bug was fixed and new -d and -e flags have been added.
+
+=item March 14, 2017
+
+Initial version.
+
+=back
+
+
+=head1 AUTHOR
+
+=over
+
+=item Hrant P. Hratchian
+
+=item University of California, Merced
+
+=item Merced, CA 95348
+
+=item hhratchian@ucmerced.edu
+
+=back
+
+
+=cut
+###########################################################################
